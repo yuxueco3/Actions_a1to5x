@@ -24,7 +24,7 @@ on:
 
 jobs:
   a1to5x:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-18.04
     continue-on-error: false
 
     steps:
@@ -183,7 +183,7 @@ jobs:
           
       - name: img2sdat && brotli
         run: |
-          pip3 install brotli
+          pip install brotli
           mv tmp/new-boot.img template/boot.img
           mv system.img template/system.img
           cd template
