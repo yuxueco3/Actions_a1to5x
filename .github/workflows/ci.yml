@@ -56,59 +56,30 @@ jobs:
           echo "Payload Extracting"
           unzip ${{ steps.var.outputs.filename }}.zip
           rm -rf ${{ steps.var.outputs.filename }}.zip
-          if [[ -f "payload.bin" ]]; then
-              python3 update-payload-extractor/extract.py payload.bin --output_dir ./output/
-          else
-              mv *.img output/
-          fi
-          ls -al output/
+          python3 update-payload-extractor/extract.py payload.bin --output_dir ./output/
+          sudo ls -R output/
 
       - name: Fstab Patching
         run: |
-          if [[ -f "output/vendor.img" ]]; then
-              mkdir system/
-              sudo mount output/system.img system/
-              cp system/system/build.prop output/
-              echo "vendor"
-              mkdir vendor/
-              sudo mount output/vendor.img vendor/
-              cat vendor/etc/fstab.qcom
-              fstab="vendor/etc/fstab.qcom"
-              sudo sed -i 's/,slotselect//g' $fstab
-              sudo sed -i 's/,verify//g' $fstab
-              sudo sed -i 's/forceencrypt/encryptable/g' $fstab
-              sudo sed -i 's/fileencryption=ice/encryptable=footer/g' $fstab
-              sed -i '/mnt_point/a\\n/dev/block/bootdevice/by-name/boot		/boot			emmc	defaults							defaults' $fstab
-              sed -i '/boot/a\\n/dev/block/bootdevice/by-name/recovery		/recovery		emmc	defaults							defaults' $fstab
-              sed -i '/recovery/G'  $fstab
-              sed -i '/system/a\\n/dev/block/bootdevice/by-name/cust		/vendor			ext4	ro								wait,recoveryonly' $fstab
-              sed -i '/persist/i\/dev/block/bootdevice/by-name/cache		/cache			f2fs	nosuid,nodev,noatime,inline_xattr,flush_merge,data_flush	wait,formattable,check' $fstab
-              sed -i '/cache/a\\n/dev/block/bootdevice/by-name/cache		/cache			ext4	nosuid,nodev,noatime						wait,formattable,check' $fstab
-              sudo cp vendor/etc/fstab.qcom output/fstab.qcom
-              sudo umount vendor
-              sudo rm -rf vendor
-              sudo umount system
-              sudo rm -rf system
-          else
-              echo "system"
-              mkdir system/
-              sudo mount output/system.img system/
-              cp system/system/build.prop output/
-              cat system/system/vendor/etc/fstab.qcom
-              fstab="system/system/vendor/etc/fstab.qcom"
-              sudo sed -i 's/,slotselect//g' $fstab
-              sudo sed -i 's/,verify//g' $fstab
-              sudo sed -i 's/forceencrypt/encryptable/g' $fstab
-              sudo sed -i 's/fileencryption=ice/encryptable=footer/g' $fstab
-              sed -i '/mnt_point/a\\n/dev/block/bootdevice/by-name/boot		/boot			emmc	defaults							defaults' $fstab
-              sed -i '/boot/a\\n/dev/block/bootdevice/by-name/recovery		/recovery		emmc	defaults							defaults' $fstab
-              sed -i '/recovery/G'  $fstab
-              sed -i '/persist/i\/dev/block/bootdevice/by-name/cache		/cache			f2fs	nosuid,nodev,noatime,inline_xattr,flush_merge,data_flush	wait,formattable,check' $fstab
-              sed -i '/cache/a\\n/dev/block/bootdevice/by-name/cache		/cache			ext4	nosuid,nodev,noatime						wait,formattable,check' $fstab
-              sudo cp system/system/vendor/etc/fstab.qcom output/fstab.qcom
-              sudo umount system
-              sudo rm -rf system
-          fi
+            echo "system"
+            mkdir system/
+            sudo mount output/system.img system/
+            cat system/system/vendor/etc/fstab.qcom
+            fstab="system/system/vendor/etc/fstab.qcom"
+            sudo sed -i 's/,slotselect//g' $fstab
+            sudo sed -i 's/,verify//g' $fstab
+            sudo sed -i 's/forceencrypt/encryptable/g' $fstab
+            sudo sed -i 's/fileencryption=ice/encryptable=footer/g' $fstab
+            sudo sed -i '/system/d' $fstab
+            sudo sed -i '/mnt_point/i\/dev/block/bootdevice/by-name/system		/system			ext4	ro								wait,recoveryonly' $fstab
+            sudo sed -i '/mnt_point/a\\n/dev/block/bootdevice/by-name/boot		/boot			emmc	defaults							defaults' $fstab
+            sudo sed -i '/system/i\/dev/block/bootdevice/by-name/recovery		/recovery		emmc	defaults							defaults' $fstab
+            sudo sed -i '/persist/i\/dev/block/bootdevice/by-name/cache		/cache			f2fs	nosuid,nodev,noatime,inline_xattr,flush_merge,data_flush	wait,formattable,check' $fstab
+            sudo sed -i '/cache/a\\n/dev/block/bootdevice/by-name/cache		/cache			ext4	nosuid,nodev,noatime						wait,formattable,check' $fstab
+            cat system/system/vendor/etc/fstab.qcom
+            sudo cp system/system/vendor/etc/fstab.qcom output/fstab.qcom
+            sudo umount system
+            sudo rm -rf system
 
       - name: img_info && dtb Patching
         run: |
@@ -120,6 +91,7 @@ jobs:
           cd boot
           sed -i 's/veritykeyid=id:\w*//g' img_info
           cp img_info ../../output/
+          cat img_info
           ls -R
           cd ../../
           mv mkbootimg/boot/kernel image.gz-dtb
@@ -153,9 +125,9 @@ jobs:
                   sed -i 's/,avb//g' $dts
                   sed -i '/,slotselect/{n;s/disable/ok/;}' $dts
                   sed -i 's/,slotselect//g' $dts
-                  if [[ -f "output/vendor.img" ]]; then
-                      sed -i '/android,vendor/{n;s/vendor/cust/;}' $dts
-                  fi
+                  line="$(grep -n "fstab" $dts)"
+                  linea="$(echo $line | cut -d ":" -f 1)"
+                  lineb="`expr $linea + 24`""p"
                   sed -n "$linea,$lineb" $dts
               fi
               cp $dts output/
@@ -193,15 +165,6 @@ jobs:
         run: |
           mv output/boot.img template/boot.img
           mv output/system.img template/system.img
-          if [[ -f "output/vendor.img" ]]; then
-              mv output/vendor.img template/vendor.img
-          else
-              sed -i '/0.080000/d' template/META-INF/com/google/android/updater-script
-              sed -i '/vendor/d' template/META-INF/com/google/android/updater-script
-              sed -i '16s/#//g' template/META-INF/com/google/android/updater-script
-              sed -i '/^\s*$/d' template/META-INF/com/google/android/updater-script
-              cat template/META-INF/com/google/android/updater-script
-          fi
           cd template
           ls -al
           cd ..
