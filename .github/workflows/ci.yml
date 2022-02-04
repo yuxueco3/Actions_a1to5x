@@ -18,6 +18,10 @@ on:
        filelink:
          description: 'ROM LINK'
          required: true
+       boot:
+         description: 'Boot(tiffany or tissot)'
+         required: true
+         default: 'tissot'
        release:
          description: 'Upload to Release'
          required: true
@@ -53,36 +57,61 @@ jobs:
 
       - name: Payload Extracting
         run: |
-          echo "Payload Extracting"
+          echo "Payload Dumper"
           unzip ${{ steps.var.outputs.filename }}.zip
           rm -rf ${{ steps.var.outputs.filename }}.zip
-          python3 update-payload-extractor/extract.py payload.bin --output_dir ./output/
-          sudo ls -R output/
+          if [[ -f "system.new.dat.br" ]]; then
+              echo "system.new.dat.br Exist"
+              brotli --decompress system.new.dat.br -o system.new.dat
+              ./sdat2img.py system.transfer.list system.new.dat output/system.img
+          fi
+          if [[ -f "vendor.new.dat.br" ]]; then
+              brotli --decompress vendor.new.dat.br -o vendor.new.dat
+              ./sdat2img.py vendor.transfer.list vendor.new.dat output/vendor.img
+          fi
+          if [[ -f "system.img" ]]; then
+              mv *.img output/
+          fi
+          ls -al output/
 
       - name: Fstab Patching
         run: |
-            echo "system"
-            mkdir system/
-            sudo mount output/system.img system/
-            sudo cp system/system/build.prop ./
-            cat system/system/vendor/etc/fstab.qcom
-            fstab="system/system/vendor/etc/fstab.qcom"
-            sudo sed -i 's/,slotselect//g' $fstab
-            sudo sed -i 's/,verify//g' $fstab
-            sudo sed -i 's/,avb//g' $fstab
-            sudo sed -i 's/forceencrypt/encryptable/g' $fstab
-            sudo sed -i 's/fileencryption=ice/encryptable=footer/g' $fstab
-            sudo sed -i '/mnt_point/{n;/system/d;}' $fstab
-            sudo sed -i '/mnt_point/a\/dev/block/bootdevice/by-name/system		/system			ext4	ro								wait,recoveryonly' $fstab
-            sudo sed -i '/mnt_point/G' $fstab
-            sudo sed -i '/mnt_point/a\/dev/block/bootdevice/by-name/recovery		/recovery		emmc	defaults							defaults' $fstab
-            sudo sed -i '/mnt_point/a\\n/dev/block/bootdevice/by-name/boot		/boot			emmc	defaults							defaults' $fstab
-            sudo sed -i '/persist/i\/dev/block/bootdevice/by-name/cache		/cache			f2fs	nosuid,nodev,noatime,inline_xattr,flush_merge,data_flush	wait,formattable,check' $fstab
-            sudo sed -i '/cache/a\\n/dev/block/bootdevice/by-name/cache		/cache			ext4	nosuid,nodev,noatime						wait,formattable,check' $fstab
-            cat system/system/vendor/etc/fstab.qcom
-            sudo cp system/system/vendor/etc/fstab.qcom output/fstab.qcom
-            sudo umount system
-            sudo rm -rf system
+          echo "vendor"
+          mkdir vendor/
+          sudo mount output/vendor.img vendor/
+          cat vendor/etc/fstab.qcom
+          fstab="vendor/etc/fstab.qcom"
+          sudo sed -i 's/,slotselect//g' $fstab
+          sudo sed -i 's/,verify//g' $fstab
+          sudo sed -i 's/,avb//g' $fstab
+          sudo sed -i 's/forceencrypt/encryptable/g' $fstab
+          sudo sed -i 's/fileencryption=ice/encryptable=footer/g' $fstab
+          sudo sed -i '/mnt_point/{n;/system/d;}' $fstab
+          cust=$(cat $fstab | grep "by-name/cust")
+          if [[ -z $cust ]]; then
+              sudo sed -i '/mnt_point/a\/dev/block/bootdevice/by-name/cust		/vendor			ext4	ro								wait,recoveryonly' $fstab
+          fi
+          system=$(cat $fstab | grep "by-name/system")
+          if [[ -z $system ]]; then
+              sudo sed -i '/mnt_point/a\/dev/block/bootdevice/by-name/system		/system			ext4	ro								wait,recoveryonly' $fstab
+          fi
+          sudo sed -i '/mnt_point/G' $fstab
+          recovery=$(cat $fstab | grep "by-name/recovery")
+          if [[ -z $recovery ]]; then
+              sudo sed -i '/mnt_point/a\/dev/block/bootdevice/by-name/recovery		/recovery		emmc	defaults							defaults' $fstab
+          fi
+          boot=$(cat $fstab | grep "by-name/boot")
+          if [[ -z $boot ]]; then
+              sudo sed -i '/mnt_point/a\\n/dev/block/bootdevice/by-name/boot		/boot			emmc	defaults							defaults' $fstab
+          fi
+          cache=$(cat $fstab | grep "by-name/cache")
+          if [[ -z $cache ]]; then
+              sudo sed -i '/persist/i\/dev/block/bootdevice/by-name/cache		/cache			f2fs	nosuid,nodev,noatime,inline_xattr,flush_merge,data_flush	wait,formattable,check' $fstab
+              sudo sed -i '/cache/a\\n/dev/block/bootdevice/by-name/cache		/cache			ext4	nosuid,nodev,noatime						wait,formattable,check' $fstab
+          fi
+          cat vendor/etc/fstab.qcom
+          sudo umount vendor
+          sudo rm -rf vendor
 
       - name: img_info && dtb Patching
         run: |
@@ -127,6 +156,8 @@ jobs:
                   sed -i '/,fstab/r flags.txt' $dts
                   sed -i '/,fstab/G' $dts
                   sed -i '/android,firmware/{n;d;}' $dts
+                  sed -i 's|/vendor|cust|g' $dts
+                  sed -i '/,avb/{n;s/disable/ok/;}' $dts
                   sed -i 's/,avb//g' $dts
                   sed -i '/,slotselect/{n;s/disable/ok/;}' $dts
                   sed -i 's/,slotselect//g' $dts
@@ -171,11 +202,18 @@ jobs:
           ls -al
           cd ..
           mv tmp/new-boot.img output/boot.img
-          
+
       - name: Packing
         run: |
-          cp -f output/boot.img template/boot.img
+          if [[ "${{ github.event.inputs.boot }}" == "tissot" ]]; then
+              echo "tissot"
+              mv output/boot.img template/boot.img
+          else
+              echo "tiffany"
+              mv tiffany/boot.img template/boot.img
+          fi
           mv output/system.img template/system.img
+          mv output/vendor.img template/vendor.img
           cd template
           ls -al
           cd ..
