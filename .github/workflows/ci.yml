@@ -18,6 +18,10 @@ on:
        filelink:
          description: 'ROM LINK'
          required: true
+       artifact:
+         description: 'Upload to Artifact(Select the folder to upload)'
+         required: true
+         default: 'template'
        release:
          description: 'Upload to Release'
          required: true
@@ -178,21 +182,18 @@ jobs:
           mv output/system.img template/system.img
           cd template
           ls -al
-          cd ..
           echo "--------------------------------------------"
-          mv template ${{ steps.var.outputs.filename }}
-          cd ${{ steps.var.outputs.filename }}
           zip -q -r -9 ${{ steps.var.outputs.filename }}.zip *
           cd ..
-          mv ${{ steps.var.outputs.filename }}/${{ steps.var.outputs.filename }}.zip ./
+          mv template/${{ steps.var.outputs.filename }}.zip ./
           ls -al
 
       - name: Upload to Artifact
         uses: actions/upload-artifact@v2
         with:
-          name: output
+          name: ${{ github.event.inputs.artifact }}
           path: |
-            output
+            ${{ github.event.inputs.artifact }}
           retention-days: 7
 
       - name: Upload to Release
