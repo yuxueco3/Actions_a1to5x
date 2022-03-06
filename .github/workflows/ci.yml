@@ -22,6 +22,14 @@ on:
          description: 'Upload to Release'
          required: true
          default: 'true'
+       we:
+         description: 'Upload to WeTransfer'
+         required: true
+         default: 'true'
+       muse:
+         description: 'Upload to MuseTransfer'
+         required: true
+         default: 'true'
 
 jobs:
   a1to5x:
@@ -34,8 +42,8 @@ jobs:
 
       - name: Initialization environment
         run: |
-          sudo -E apt-get -qq update
-          sudo -E apt-get -qq install git openjdk-8-jdk wget curl rsync aria2 python python3 unzip device-tree-compiler brotli simg2img img2simg axel cpio file
+          sudo apt-get update -y
+          sudo apt-get install -y git openjdk-8-jdk wget curl rsync aria2 python python3 unzip device-tree-compiler brotli simg2img img2simg axel cpio file
           pip3 install protobuf
           pip install brotli
 
@@ -99,24 +107,21 @@ jobs:
           rm image.gz-dtb
           ls
           for i in `find *.dtb`; do
-              dts=${i%.*}.dts
-              dtc -q -I dtb -O dts -o $dts $i
-              rm -rf $i
-              if [ `grep -c "fstab" $dts` -ne '0' ];then
-                  sed -i '/parts/{n;d;}' $dts
-                  sed -i '/vbmeta/d' $dts
-                  sed -i '/,slotselect/{n;s/disable/ok/;}' $dts
-                  #sed -i 's/,avb//g' $dts
-                  #sed -i 's/,slotselect//g' $dts
-                  dtb=$i
-              fi
-              cp $dts ../../output/
-              dtc -q -I dts -O dtb -o $i $dts
-              rm -rf $dts
+            echo "$i"
+            if [[ ! -z "$(../../fdtget $i /firmware/android/fstab -p 2>/dev/null || true)" ]]; then
+                echo "true"
+                ../../magiskboot dtb $i print -f
+                ../../fdtget $i /firmware/android/vbmeta parts 2>/dev/null || true
+                ../../fdtput $i -r /firmware/android/vbmeta
+                ../../fdtput $i /firmware/android/fstab/system status ok -ts
+                ../../fdtput $i /firmware/android/fstab/system fsmgr_flags wait -ts
+                ../../fdtput $i /firmware/android/fstab/vendor fsmgr_flags wait -ts
+                echo "列出android下的节点"
+                ../../fdtget $i /firmware/android/vbmeta -l 2>/dev/null || true
+                ../../fdtget $i /firmware/android/vbmeta parts 2>/dev/null || true
+                ../../magiskboot dtb $i print -f
+            fi
           done
-          echo "dtb: $dtb"
-          ../../magiskboot dtb $dtb patch
-          ../../magiskboot dtb $dtb print -f
           ls
           cat kernel *.dtb > image.gz-dtb
           rm -f *.dtb
@@ -154,12 +159,24 @@ jobs:
           retention-days: 7
 
       - name: Upload to WeTransfer
+        if: github.event.inputs.we == 'true'
+        continue-on-error: true
         run: |
+          echo "Upload to WeTransfer"
           curl -fsSL git.io/file-transfer | sh
           wetrans=$(./transfer wet -s -p 16 --no-progress ${{ steps.var.outputs.filename }}.zip)
           wetrans=$(echo $wetrans | grep -o -E "https[^ ]*")
-          echo "WeTransfer: $wetrans"
+          echo "WeTransfer: $wetrans" >> boby.txt
 
+      - name: Upload to MuseTransfer
+        if: github.event.inputs.muse == 'true'
+        continue-on-error: true
+        run: |
+          echo "Upload to MuseTransfer"
+          curl -fsSL git.io/file-transfer | sh
+          musetrans=$(./transfer muse -s -p 12 --no-progress ${{ github.event.inputs.rom }}/${{ steps.build.outputs.name }})
+          musetrans=$(echo $musetrans | grep -o -E "https[^ ]*")
+          echo "MuseTransfer: $musetrans" >> boby.txt
 
       - name: Upload to Release
         if: github.event.inputs.release == 'true'
@@ -168,7 +185,7 @@ jobs:
           files: ${{ steps.var.outputs.filename }}.zip
           name: ${{ steps.var.outputs.filename }}
           tag_name: ${{ github.run_id }}
-          body: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          body_path: boby.txt
         env:
           GITHUB_TOKEN: ${{ secrets.RELEASE }}
 
